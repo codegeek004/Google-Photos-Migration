@@ -1,4 +1,3 @@
-import os
 import io
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
@@ -38,9 +37,6 @@ def google_auth(request):
     return redirect(authorization_url)
 
 def google_auth_callback(request):
-    print("Callback URL:", request.build_absolute_uri())  # Debug the full callback URL
-    print("Request GET Data:", request.GET)  # Debug the query parameters
-    
     if 'code' not in request.GET:
         return redirect('home')  # Redirect or show an error if the code is missing
 
@@ -49,7 +45,7 @@ def google_auth_callback(request):
     credentials = flow.credentials
 
     # Save credentials in the session
-    request.session['credentials'] = credentials_to_dict(credentials)
+    request.session['source_credentials'] = credentials_to_dict(credentials)
 
     # Authenticate and log the user in (dummy user for simplicity)
     user, created = User.objects.get_or_create(username="google_user")
@@ -84,84 +80,63 @@ def get_photos_service(credentials_dict):
 
 @login_required
 def migrate_photos(request):
-    if 'source_credentials' not in request.session or 'destination_credentials' not in request.session:
-        return redirect('source_google_auth')  # Redirect to authenticate both accounts
+    # Check if source credentials are available in the session
+    if 'source_credentials' not in request.session:
+        return redirect('source_google_auth')  # Redirect to authenticate the source account
 
+    # Handle form submission for destination email
+    if request.method == 'POST' and 'destination_email' in request.POST:
+        destination_email = request.POST['destination_email']
+        return redirect('destination_google_auth', email=destination_email)
+
+    # Fetch photos from source account
     source_credentials = request.session['source_credentials']
-    destination_credentials = request.session['destination_credentials']
-
     source_service = get_photos_service(source_credentials)
-    destination_service = get_photos_service(destination_credentials)
-
     photos = get_photos(source_credentials)
 
-    if request.method == 'POST':
-        action = request.POST.get('action')
+    if request.method == 'POST' and 'action' in request.POST:
+        action = request.POST['action']
 
+        # Migrate all photos
         if action == 'migrate_all':
-            for photo in photos:
-                file_url = photo['baseUrl'] + "=d"
-                file_name = photo['filename']
-                photo_data = download_photo(file_url)
-                if photo_data:
-                    upload_photo(destination_service, photo_data, file_name)
-            return render(request, 'migrate_photos.html', {'photos': photos, 'success_all': True})
-
-        elif action == 'migrate_selected':
-            selected_photo_ids = request.POST.getlist('selected_photos')
-            for photo in photos:
-                if photo['id'] in selected_photo_ids:
+            destination_credentials = request.session.get('destination_credentials')
+            if destination_credentials:
+                destination_service = get_photos_service(destination_credentials)
+                for photo in photos:
                     file_url = photo['baseUrl'] + "=d"
                     file_name = photo['filename']
                     photo_data = download_photo(file_url)
                     if photo_data:
                         upload_photo(destination_service, photo_data, file_name)
-            return render(request, 'migrate_photos.html', {'photos': photos, 'success_selected': True})
+                return render(request, 'migrate_photos.html', {'photos': photos, 'success_all': True})
 
     return render(request, 'migrate_photos.html', {'photos': photos})
-@login_required
-def migrate_photos(request):
-    if 'source_credentials' not in request.session or 'destination_credentials' not in request.session:
-        return redirect('source_google_auth')  # Redirect to authenticate both accounts
 
-    source_credentials = request.session['source_credentials']
-    destination_credentials = request.session['destination_credentials']
+def destination_google_auth(request, email):
+    flow = get_google_auth_flow()
+    authorization_url, state = flow.authorization_url(access_type='offline')
+    
+    # Store the destination email in session for later use
+    request.session['destination_email'] = email
+    
+    return redirect(authorization_url)
 
-    source_service = get_photos_service(source_credentials)
-    destination_service = get_photos_service(destination_credentials)
+def destination_google_auth_callback(request):
+    if 'code' not in request.GET:
+        return redirect('home')  # Redirect if the code is missing
 
-    photos = get_photos(source_credentials)
+    flow = get_google_auth_flow()
+    flow.fetch_token(authorization_response=request.build_absolute_uri())
+    credentials = flow.credentials
 
-    if request.method == 'POST':
-        action = request.POST.get('action')
-
-        if action == 'migrate_all':
-            for photo in photos:
-                file_url = photo['baseUrl'] + "=d"
-                file_name = photo['filename']
-                photo_data = download_photo(file_url)
-                if photo_data:
-                    upload_photo(destination_service, photo_data, file_name)
-            return render(request, 'migrate_photos.html', {'photos': photos, 'success_all': True})
-
-        elif action == 'migrate_selected':
-            selected_photo_ids = request.POST.getlist('selected_photos')
-            for photo in photos:
-                if photo['id'] in selected_photo_ids:
-                    file_url = photo['baseUrl'] + "=d"
-                    file_name = photo['filename']
-                    photo_data = download_photo(file_url)
-                    if photo_data:
-                        upload_photo(destination_service, photo_data, file_name)
-            return render(request, 'migrate_photos.html', {'photos': photos, 'success_selected': True})
-
-    return render(request, 'migrate_photos.html', {'photos': photos})
+    # Store destination credentials in session
+    request.session['destination_credentials'] = credentials_to_dict(credentials)
+    return redirect('migrate_photos')
 
 # Fetch photos from Google Photos
 def get_photos(credentials_dict):
     service = get_photos_service(credentials_dict)
     results = service.mediaItems().list(pageSize=100).execute()
-    print('results', results)
     items = results.get('mediaItems', [])
     return items
 
@@ -194,22 +169,3 @@ def upload_photo(service, photo_data, file_name):
     except Exception as e:
         print(f"Error uploading photo: {e}")
         return None
-
-
-
-def destination_google_auth(request):
-    flow = get_google_auth_flow()
-    authorization_url, state = flow.authorization_url()
-    return redirect(authorization_url)
-
-def destination_google_auth_callback(request):
-    if 'code' not in request.GET:
-        return redirect('home')  # Redirect if the code is missing
-
-    flow = get_google_auth_flow()
-    flow.fetch_token(authorization_response=request.build_absolute_uri())
-    credentials = flow.credentials
-
-    # Save credentials in session
-    request.session['destination_credentials'] = credentials_to_dict(credentials)
-    return redirect('migrate_photos')
