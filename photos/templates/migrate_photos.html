@@ -7,18 +7,43 @@
 
 {% if success_all %}
     <p>All photos have been successfully migrated!</p>
+{% elif success_selected %}
+    <p>Selected photos have been successfully migrated!</p>
 {% endif %}
-
-<ul>
-    {% for photo in photos %}
-        <li>
-            <img src="{{ photo.baseUrl }}=s150" alt="{{ photo.filename }}">
-            <p>{{ photo.filename }}</p>
-        </li>
-    {% endfor %}
-</ul>
 
 <form method="POST">
     {% csrf_token %}
+    <table>
+        <thead>
+            <tr>
+                <th>Select</th>
+                <th>Preview</th>
+                <th>File Name</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for photo in photos %}
+                <tr>
+                    <td>
+                        <input type="checkbox" name="selected_photos" value="{{ photo.id }}">
+                    </td>
+                    <td>
+                        <img src="{{ photo.baseUrl }}=s150" alt="{{ photo.filename }}">
+                    </td>
+                    <td>{{ photo.filename }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
     <button type="submit" name="action" value="migrate_all">Migrate All Photos</button>
+    <button type="submit" name="action" value="migrate_selected">Migrate Selected Photos</button>
 </form>
+
+<div>
+    {% if next_page_token %}
+        <a href="?page_token={{ next_page_token }}">Next Page &rarr;</a>
+    {% endif %}
+    {% if previous_page_token %}
+        <a href="?page_token={{ previous_page_token }}">&larr; Previous Page</a>
+    {% endif %}
+</div>

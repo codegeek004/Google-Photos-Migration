@@ -80,24 +80,18 @@ def get_photos_service(credentials_dict):
 
 @login_required
 def migrate_photos(request):
-    # Check if source credentials are available in the session
     if 'source_credentials' not in request.session:
         return redirect('source_google_auth')  # Redirect to authenticate the source account
 
-    # Handle form submission for destination email
-    if request.method == 'POST' and 'destination_email' in request.POST:
-        destination_email = request.POST['destination_email']
-        return redirect('destination_google_auth', email=destination_email)
-
-    # Fetch photos from source account
+    # Fetch photos from the source account with pagination
     source_credentials = request.session['source_credentials']
-    source_service = get_photos_service(source_credentials)
-    photos = get_photos(source_credentials)
+    page_token = request.GET.get('page_token')  # Retrieve page token from query parameters
+    photos, next_page_token = get_photos(source_credentials, page_token)
 
     if request.method == 'POST' and 'action' in request.POST:
         action = request.POST['action']
 
-        # Migrate all photos
+        # Handle "Migrate All" action
         if action == 'migrate_all':
             destination_credentials = request.session.get('destination_credentials')
             if destination_credentials:
@@ -106,11 +100,28 @@ def migrate_photos(request):
                     file_url = photo['baseUrl'] + "=d"
                     file_name = photo['filename']
                     photo_data = download_photo(file_url)
+                    print('Downloaded photo data', photo_data)
                     if photo_data:
                         upload_photo(destination_service, photo_data, file_name)
-                return render(request, 'migrate_photos.html', {'photos': photos, 'success_all': True})
+                return render(request, 'migrate_photos.html', {'photos': photos, 'success_all': True, 'next_page_token': next_page_token})
 
-    return render(request, 'migrate_photos.html', {'photos': photos})
+        # Handle "Migrate Selected" action
+        elif action == 'migrate_selected':
+            selected_photo_ids = request.POST.getlist('selected_photos')
+            destination_credentials = request.session.get('destination_credentials')
+            if destination_credentials and selected_photo_ids:
+                destination_service = get_photos_service(destination_credentials)
+                selected_photos = [photo for photo in photos if photo['id'] in selected_photo_ids]
+                for photo in selected_photos:
+                    file_url = photo['baseUrl'] + "=d"
+                    file_name = photo['filename']
+                    photo_data = download_photo(file_url)
+                    if photo_data:
+                        upload_photo(destination_service, photo_data, file_name)
+                return render(request, 'migrate_photos.html', {'photos': photos, 'success_selected': True, 'next_page_token': next_page_token})
+
+    return render(request, 'migrate_photos.html', {'photos': photos, 'next_page_token': next_page_token})
+
 
 def destination_google_auth(request, email):
     flow = get_google_auth_flow()
@@ -133,24 +144,29 @@ def destination_google_auth_callback(request):
     request.session['destination_credentials'] = credentials_to_dict(credentials)
     return redirect('migrate_photos')
 
-# Fetch photos from Google Photos
-def get_photos(credentials_dict):
+def get_photos(credentials_dict, page_token=None):
+    print('Fetching photos with pagination...')
     service = get_photos_service(credentials_dict)
-    results = service.mediaItems().list(pageSize=100).execute()
+    results = service.mediaItems().list(pageSize=20, pageToken=page_token).execute()
+    
     items = results.get('mediaItems', [])
-    return items
+    next_page_token = results.get('nextPageToken')  # Token for the next page, if available
+    
+    return items, next_page_token
+
 
 # Download a photo
 def download_photo(url):
+    print('download photo mai gaya')
     try:
         response = requests.get(url, stream=True)
+        print('response', response)
         response.raise_for_status()
         return io.BytesIO(response.content)  # Return file-like object
     except requests.exceptions.RequestException as e:
         print(f"Error downloading photo: {e}")
         return None
 
-# Upload a photo to Google Photos
 def upload_photo(service, photo_data, file_name):
     try:
         media_item = {
@@ -162,10 +178,49 @@ def upload_photo(service, photo_data, file_name):
                 }
             ]
         }
+        # Debugging information
+        print("Uploading Photo:", file_name)
+        print("Photo Data:", photo_data.getbuffer().nbytes)  # File size
+        
         media = MediaFileUpload(file_name, resumable=True)
         request = service.mediaItems().batchCreate(body=media_item)
         response = request.execute()
+        print("Upload Response:", response)
         return response
     except Exception as e:
         print(f"Error uploading photo: {e}")
         return None
+
+
+
+
+
+import requests
+from django.contrib.auth import logout
+def logout_view(request):
+    # Revoke tokens if they exist
+    source_credentials = request.session.get('source_credentials')
+    destination_credentials = request.session.get('destination_credentials')
+
+    if source_credentials:
+        requests.post(
+            'https://oauth2.googleapis.com/revoke',
+            params={'token': source_credentials['token']},
+            headers={'content-type': 'application/x-www-form-urlencoded'}
+        )
+
+    if destination_credentials:
+        requests.post(
+            'https://oauth2.googleapis.com/revoke',
+            params={'token': destination_credentials['token']},
+            headers={'content-type': 'application/x-www-form-urlencoded'}
+        )
+
+    # Clear session data and logout
+    request.session.flush()
+    logout(request)
+
+    # Redirect to home or login page
+    return redirect('home')
+
+
