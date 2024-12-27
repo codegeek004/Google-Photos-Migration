@@ -1,0 +1,32 @@
+{% if not request.session.source_credentials %}
+<p>Authenticate your source Google Photos account:</p>
+<a href="{% url 'source_google_auth' %}">Login to Source Account</a>
+{% endif %}
+
+{% if not request.session.destination_credentials %}
+<p>Authenticate your destination Google Photos account:</p>
+<a href="{% url 'destination_google_auth' %}">Login to Destination Account</a>
+{% endif %}
+
+{% if request.session.source_credentials and request.session.destination_credentials %}
+<form method="POST">
+    {% csrf_token %}
+    <h3>Select Photos to Migrate</h3>
+    <div>
+        {% for photo in photos %}
+        <div>
+            <input type="checkbox" name="selected_photos" value="{{ photo.id }}">
+            <img src="{{ photo.baseUrl }}" alt="{{ photo.filename }}" width="100">
+            <p>{{ photo.filename }}</p>
+        </div>
+        {% endfor %}
+    </div>
+
+    <button type="submit" name="action" value="migrate_selected">Migrate Selected</button>
+</form>
+
+<form method="POST">
+    {% csrf_token %}
+    <button type="submit" name="action" value="migrate_all">Migrate All</button>
+</form>
+{% endif %}
