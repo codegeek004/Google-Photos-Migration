@@ -16,15 +16,17 @@ CLIENT_SECRETS_FILE = "credentials.json"
 API_NAME = 'photoslibrary'
 API_VERSION = 'v1'
 
-# Set up the OAuth flow
 def get_google_auth_flow():
     flow = Flow.from_client_secrets_file(
-        CLIENT_SECRETS_FILE,  # Path to your credentials.json file
+        CLIENT_SECRETS_FILE,
         scopes=[
             'https://www.googleapis.com/auth/photoslibrary.readonly',
-            'https://www.googleapis.com/auth/photoslibrary.appendonly'
+            'https://www.googleapis.com/auth/photoslibrary.appendonly',
+            'https://www.googleapis.com/auth/userinfo.profile',
+            'https://www.googleapis.com/auth/userinfo.email',
+            'openid'
         ],
-        redirect_uri='https://127.0.0.1:8000/photos/auth/callback/'  # This should match the callback URL registered in Google Console
+        redirect_uri='https://127.0.0.1:8000/photos/auth/callback/'
     )
     return flow
 
@@ -38,22 +40,39 @@ def google_auth(request):
 
 def google_auth_callback(request):
     if 'code' not in request.GET:
-        return redirect('home')  # Redirect or show an error if the code is missing
+        return redirect('home')
 
     flow = get_google_auth_flow()
     flow.fetch_token(authorization_response=request.build_absolute_uri())
     credentials = flow.credentials
 
-    # Save credentials in the session
+    # Fetch user info using the token
+    userinfo_endpoint = 'https://www.googleapis.com/oauth2/v3/userinfo'
+    userinfo_response = requests.get(userinfo_endpoint, headers={
+        'Authorization': f'Bearer {credentials.token}'
+    })
+    
+    if userinfo_response.status_code == 200:
+        userinfo = userinfo_response.json()
+        username = userinfo.get('name', 'Unknown User')
+        email = userinfo.get('email', 'Unknown Email')
+        print('username: ', username)
+        print('email: ', email)
+
+        # Save user info or use it
+        user, created = User.objects.get_or_create(username=email)
+        user.first_name = username
+        user.save()
+
+        login(request, user)
+    else:
+        print("Failed to fetch user info:", userinfo_response.text)
+
+    # Save credentials in session
     request.session['source_credentials'] = credentials_to_dict(credentials)
+    return redirect('migrate_photos')
 
-    # Authenticate and log the user in (dummy user for simplicity)
-    user, created = User.objects.get_or_create(username="google_user")
-    login(request, user)  # Log the user into the Django session system
 
-    return redirect('migrate_photos')  # Redirect to migrate_photos
-
-# Convert Credentials object to a dictionary
 def credentials_to_dict(credentials):
     return {
         'token': credentials.token,
@@ -64,7 +83,6 @@ def credentials_to_dict(credentials):
         'scopes': credentials.scopes
     }
 
-# Get Google Photos API client
 def get_photos_service(credentials_dict):
     credentials = Credentials(
         token=credentials_dict['token'],
@@ -81,34 +99,34 @@ def get_photos_service(credentials_dict):
 @login_required
 def migrate_photos(request):
     if 'source_credentials' not in request.session:
-        return redirect('source_google_auth')  # Redirect to authenticate the source account
+        return redirect('google_auth')
 
-    # Fetch photos from the source account with pagination
     source_credentials = request.session['source_credentials']
-    page_token = request.GET.get('page_token')  # Retrieve page token from query parameters
+    print('src creds', source_credentials)
+    page_token = request.GET.get('page_token')
     photos, next_page_token = get_photos(source_credentials, page_token)
 
     if request.method == 'POST' and 'action' in request.POST:
         action = request.POST['action']
 
-        # Handle "Migrate All" action
         if action == 'migrate_all':
             destination_credentials = request.session.get('destination_credentials')
+            print('dest creds', destination_credentials)
             if destination_credentials:
                 destination_service = get_photos_service(destination_credentials)
                 for photo in photos:
                     file_url = photo['baseUrl'] + "=d"
                     file_name = photo['filename']
                     photo_data = download_photo(file_url)
-                    print('Downloaded photo data', photo_data)
                     if photo_data:
                         upload_photo(destination_service, photo_data, file_name)
                 return render(request, 'migrate_photos.html', {'photos': photos, 'success_all': True, 'next_page_token': next_page_token})
 
-        # Handle "Migrate Selected" action
         elif action == 'migrate_selected':
             selected_photo_ids = request.POST.getlist('selected_photos')
             destination_credentials = request.session.get('destination_credentials')
+            print('dest creds', destination_credentials)
+            print(request.session)
             if destination_credentials and selected_photo_ids:
                 destination_service = get_photos_service(destination_credentials)
                 selected_photos = [photo for photo in photos if photo['id'] in selected_photo_ids]
@@ -122,83 +140,56 @@ def migrate_photos(request):
 
     return render(request, 'migrate_photos.html', {'photos': photos, 'next_page_token': next_page_token})
 
-
-def destination_google_auth(request, email):
-    flow = get_google_auth_flow()
-    authorization_url, state = flow.authorization_url(access_type='offline')
-    
-    # Store the destination email in session for later use
-    request.session['destination_email'] = email
-    
-    return redirect(authorization_url)
+def destination_google_auth(request):
+    print('destination auth mai gaya')
+    if request.method == 'POST':
+        email = request.POST.get('destination_email')
+        print('email', email)
+        flow = get_google_auth_flow()
+        authorization_url, state = flow.authorization_url(access_type='offline')
+        print('authorization url ke niche')
+        request.session['destination_email'] = email
+        print('session', request.session['destination_email']   )
+        return redirect(authorization_url)
+    return redirect('home')
 
 def destination_google_auth_callback(request):
+    print('destination auth callback mai gaya')
     if 'code' not in request.GET:
-        return redirect('home')  # Redirect if the code is missing
+        return redirect('home')
 
     flow = get_google_auth_flow()
     flow.fetch_token(authorization_response=request.build_absolute_uri())
     credentials = flow.credentials
-
-    # Store destination credentials in session
+    print('dest creds in google auth function', credentials)
     request.session['destination_credentials'] = credentials_to_dict(credentials)
     return redirect('migrate_photos')
 
 def get_photos(credentials_dict, page_token=None):
-    print('Fetching photos with pagination...')
     service = get_photos_service(credentials_dict)
     results = service.mediaItems().list(pageSize=20, pageToken=page_token).execute()
-    
     items = results.get('mediaItems', [])
-    next_page_token = results.get('nextPageToken')  # Token for the next page, if available
-    
+    next_page_token = results.get('nextPageToken')
     return items, next_page_token
 
-
-# Download a photo
 def download_photo(url):
-    print('download photo mai gaya')
     try:
         response = requests.get(url, stream=True)
-        print('response', response)
         response.raise_for_status()
-        return io.BytesIO(response.content)  # Return file-like object
+        return io.BytesIO(response.content)
     except requests.exceptions.RequestException as e:
         print(f"Error downloading photo: {e}")
         return None
 
 def upload_photo(service, photo_data, file_name):
     try:
-        media_item = {
-            'newMediaItems': [
-                {
-                    'simpleMediaItem': {
-                        'fileName': file_name
-                    }
-                }
-            ]
-        }
-        # Debugging information
-        print("Uploading Photo:", file_name)
-        print("Photo Data:", photo_data.getbuffer().nbytes)  # File size
-        
-        media = MediaFileUpload(file_name, resumable=True)
-        request = service.mediaItems().batchCreate(body=media_item)
-        response = request.execute()
-        print("Upload Response:", response)
-        return response
+        media_item = {'newMediaItems': [{'simpleMediaItem': {'fileName': file_name}}]}
+        service.mediaItems().batchCreate(body=media_item).execute()
     except Exception as e:
         print(f"Error uploading photo: {e}")
-        return None
 
-
-
-
-
-import requests
 from django.contrib.auth import logout
 def logout_view(request):
-    # Revoke tokens if they exist
     source_credentials = request.session.get('source_credentials')
     destination_credentials = request.session.get('destination_credentials')
 
@@ -216,11 +207,22 @@ def logout_view(request):
             headers={'content-type': 'application/x-www-form-urlencoded'}
         )
 
-    # Clear session data and logout
     request.session.flush()
     logout(request)
-
-    # Redirect to home or login page
     return redirect('home')
 
 
+def fetch_user_info(credentials):
+    """
+    Fetches user information from the Google UserInfo API.
+    """
+    try:
+        response = requests.get(
+            'https://www.googleapis.com/oauth2/v1/userinfo',
+            headers={'Authorization': f'Bearer {credentials.token}'}
+        )
+        response.raise_for_status()
+        return response.json()  # Return user info as a dictionary
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching user info: {e}")
+        return None
