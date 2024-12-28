@@ -1,4 +1,6 @@
-<form method="POST">
+<h1>Google Photos Migration</h1>
+
+<form method="POST" action="{% url 'destination_google_auth' %}">
     {% csrf_token %}
     <label for="destination_email">Destination Account Email:</label>
     <input type="email" id="destination_email" name="destination_email" required />
@@ -24,12 +26,8 @@
         <tbody>
             {% for photo in photos %}
                 <tr>
-                    <td>
-                        <input type="checkbox" name="selected_photos" value="{{ photo.id }}">
-                    </td>
-                    <td>
-                        <img src="{{ photo.baseUrl }}=s150" alt="{{ photo.filename }}">
-                    </td>
+                    <td><input type="checkbox" name="selected_photos" value="{{ photo.id }}"></td>
+                    <td><img src="{{ photo.baseUrl }}=s150" alt="{{ photo.filename }}"></td>
                     <td>{{ photo.filename }}</td>
                 </tr>
             {% endfor %}
@@ -39,11 +37,6 @@
     <button type="submit" name="action" value="migrate_selected">Migrate Selected Photos</button>
 </form>
 
-<div>
-    {% if next_page_token %}
-        <a href="?page_token={{ next_page_token }}">Next Page &rarr;</a>
-    {% endif %}
-    {% if previous_page_token %}
-        <a href="?page_token={{ previous_page_token }}">&larr; Previous Page</a>
-    {% endif %}
-</div>
+{% if next_page_token %}
+    <a href="?page_token={{ next_page_token }}">Next Page</a>
+{% endif %}
