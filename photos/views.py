@@ -10,6 +10,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_httplib2 import AuthorizedHttp
 import httplib2
 import requests
+import json
 
 # Define constants
 CLIENT_SECRETS_FILE = "credentials.json"
@@ -45,6 +46,7 @@ def google_auth_callback(request):
     flow = get_google_auth_flow()
     flow.fetch_token(authorization_response=request.build_absolute_uri())
     credentials = flow.credentials
+    print('creds in auth callback', credentials)
 
     # Fetch user info using the token
     userinfo_endpoint = 'https://www.googleapis.com/oauth2/v3/userinfo'
@@ -54,6 +56,7 @@ def google_auth_callback(request):
     
     if userinfo_response.status_code == 200:
         userinfo = userinfo_response.json()
+        print('userinfo', userinfo)
         username = userinfo.get('name', 'Unknown User')
         email = userinfo.get('email', 'Unknown Email')
         print('username: ', username)
@@ -72,8 +75,8 @@ def google_auth_callback(request):
     request.session['source_credentials'] = credentials_to_dict(credentials)
     return redirect('migrate_photos')
 
-
 def credentials_to_dict(credentials):
+    print('creds to dict function mai gaya')
     return {
         'token': credentials.token,
         'refresh_token': credentials.refresh_token,
@@ -84,6 +87,7 @@ def credentials_to_dict(credentials):
     }
 
 def get_photos_service(credentials_dict):
+    print('get photos service function mai gaya')
     credentials = Credentials(
         token=credentials_dict['token'],
         refresh_token=credentials_dict.get('refresh_token'),
@@ -98,6 +102,7 @@ def get_photos_service(credentials_dict):
 
 @login_required
 def migrate_photos(request):
+    print('migrate photos mai gaya')
     if 'source_credentials' not in request.session:
         return redirect('google_auth')
 
@@ -107,12 +112,27 @@ def migrate_photos(request):
     photos, next_page_token = get_photos(source_credentials, page_token)
 
     if request.method == 'POST' and 'action' in request.POST:
+        print('post method mai gaya')
         action = request.POST['action']
+        print('action', action)
+        destination_credentials = request.session.get('destination_credentials')
+        print('dest creds', destination_credentials)
+        
+        if isinstance(destination_credentials, str) and destination_credentials.strip():
+            print('inside if isinstance')
+            destination_credentials = json.loads(destination_credentials)
+        else:
+            print('inside else of isinstance')
+            print("Error: destination_credentials is missing or invalid.")
+            return render(request, 'migrate_photos.html', {
+                'photos': photos,
+                'error': 'Destination credentials are missing.'
+            })
 
         if action == 'migrate_all':
-            destination_credentials = request.session.get('destination_credentials')
-            print('dest creds', destination_credentials)
+            print('in migrate all ')
             if destination_credentials:
+                print('dest creds mil gaye')
                 destination_service = get_photos_service(destination_credentials)
                 for photo in photos:
                     file_url = photo['baseUrl'] + "=d"
@@ -120,13 +140,14 @@ def migrate_photos(request):
                     photo_data = download_photo(file_url)
                     if photo_data:
                         upload_photo(destination_service, photo_data, file_name)
-                return render(request, 'migrate_photos.html', {'photos': photos, 'success_all': True, 'next_page_token': next_page_token})
+                return render(request, 'migrate_photos.html', {
+                    'photos': photos,
+                    'success_all': True,
+                    'next_page_token': next_page_token
+                })
 
         elif action == 'migrate_selected':
             selected_photo_ids = request.POST.getlist('selected_photos')
-            destination_credentials = request.session.get('destination_credentials')
-            print('dest creds', destination_credentials)
-            print(request.session)
             if destination_credentials and selected_photo_ids:
                 destination_service = get_photos_service(destination_credentials)
                 selected_photos = [photo for photo in photos if photo['id'] in selected_photo_ids]
@@ -136,32 +157,36 @@ def migrate_photos(request):
                     photo_data = download_photo(file_url)
                     if photo_data:
                         upload_photo(destination_service, photo_data, file_name)
-                return render(request, 'migrate_photos.html', {'photos': photos, 'success_selected': True, 'next_page_token': next_page_token})
+                return render(request, 'migrate_photos.html', {
+                    'photos': photos,
+                    'success_selected': True,
+                    'next_page_token': next_page_token
+                })
 
-    return render(request, 'migrate_photos.html', {'photos': photos, 'next_page_token': next_page_token})
+    return render(request, 'migrate_photos.html', {
+        'photos': photos,
+        'next_page_token': next_page_token
+    })
 
 def destination_google_auth(request):
-    print('destination auth mai gaya')
+    print('destination google auth mai gaya')
     if request.method == 'POST':
         email = request.POST.get('destination_email')
-        print('email', email)
         flow = get_google_auth_flow()
         authorization_url, state = flow.authorization_url(access_type='offline')
-        print('authorization url ke niche')
         request.session['destination_email'] = email
-        print('session', request.session['destination_email']   )
         return redirect(authorization_url)
     return redirect('home')
 
 def destination_google_auth_callback(request):
-    print('destination auth callback mai gaya')
+    print('inside destination google auth callback')
     if 'code' not in request.GET:
         return redirect('home')
 
     flow = get_google_auth_flow()
     flow.fetch_token(authorization_response=request.build_absolute_uri())
     credentials = flow.credentials
-    print('dest creds in google auth function', credentials)
+    print('creds in destination auth callback', credentials)
     request.session['destination_credentials'] = credentials_to_dict(credentials)
     return redirect('migrate_photos')
 
@@ -211,18 +236,14 @@ def logout_view(request):
     logout(request)
     return redirect('home')
 
-
 def fetch_user_info(credentials):
-    """
-    Fetches user information from the Google UserInfo API.
-    """
     try:
         response = requests.get(
             'https://www.googleapis.com/oauth2/v1/userinfo',
             headers={'Authorization': f'Bearer {credentials.token}'}
         )
         response.raise_for_status()
-        return response.json()  # Return user info as a dictionary
+        return response.json()
     except requests.exceptions.RequestException as e:
         print(f"Error fetching user info: {e}")
         return None
