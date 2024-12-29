@@ -26,7 +26,7 @@ SECRET_KEY = 'django-insecure-n(32f5&23g4p(l&=66fhlr$&f*p&hdycel!cf&@r0)%@aksdq(
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -134,7 +134,13 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 GOOGLE_REDIRECT_URI = "http://127.0.0.1:8000/photos/auth/callback/"
 
 
-CSRF_TRUSTED_ORIGINS = ['https://127.0.0.1']
+SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE =False
+CSRF_COOKIE_HTTPONLY = True
+ # Set to True in production
+SESSION_COOKIE_SECURE = False  # Set to True in production
+CORS_ALLOWED_ORIGINS = [
+    'http://127.0.0.1:8000',
+]
 
 TIME_ZONE =  'Asia/Kolkata'
