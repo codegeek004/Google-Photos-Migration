@@ -123,8 +123,35 @@ def download_photo(url):
 
 def upload_photo(service, photo_data, file_name):
     try:
-        media_item = {'newMediaItems': [{'simpleMediaItem': {'fileName': file_name}}]}
+        # First, upload the photo data to Google Photos
+        upload_url = "https://photoslibrary.googleapis.com/v1/uploads"
+        headers = {
+            "Authorization": f"Bearer {service._http.credentials.token}",
+            "Content-Type": "application/octet-stream",
+            "X-Goog-Upload-File-Name": file_name,
+            "X-Goog-Upload-Protocol": "raw"
+        }
+
+        # Send the photo data
+        response = requests.post(upload_url, headers=headers, data=photo_data)
+        response.raise_for_status()
+
+        # Get the upload token from the response
+        upload_token = response.text
+
+        # After getting the upload token, create the media item
+        media_item = {
+            'newMediaItems': [{
+                'simpleMediaItem': {
+                    'uploadToken': upload_token
+                }
+            }]
+        }
+
+        # Use the batchCreate method to create the media item
         service.mediaItems().batchCreate(body=media_item).execute()
+
     except Exception as e:
         print(f"Error uploading photo: {e}")
+
 
