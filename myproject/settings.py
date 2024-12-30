@@ -131,7 +131,9 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
 # Replace with your actual redirect URI
-GOOGLE_REDIRECT_URI = "http://127.0.0.1:8000/photos/auth/callback/"
+# GOOGLE_REDIRECT_URI = "http://127.0.0.1:8000/photos/auth/callback/"
+LOGIN_URL = '/auth/'  # Redirects unauthorized access here
+
 
 
 SESSION_COOKIE_SECURE = True
