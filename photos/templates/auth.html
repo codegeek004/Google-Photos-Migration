@@ -19,19 +19,7 @@
     
     <hr>
 
-    <!-- Destination Account Authentication -->
-    <div>
-        <h2>Authenticate Destination Account</h2>
-        <p>Enter the email address for the destination Google account and click Authenticate:</p>
-        <form action="{% url 'destination_google_auth' %}" method="post">
-            {% csrf_token %}
-            <label for="destination_email">Destination Email:</label>
-            <input type="email" name="destination_email" id="destination_email" required>
-            <button type="submit">Authenticate Destination</button>
-        </form>
-    </div>
-
-    <hr>
+    
 
     <!-- Logout -->
     <div>

@@ -10,6 +10,7 @@ import requests
 CLIENT_SECRETS_FILE = "credentials.json"
 
 def get_google_auth_flow(redirect_uri):
+    print('get google auth flow mai gaya')
     flow = Flow.from_client_secrets_file(
         CLIENT_SECRETS_FILE,
         scopes=[
@@ -24,15 +25,24 @@ def get_google_auth_flow(redirect_uri):
     return flow
 
 def oauth(request):
-    return render(request, 'authentication.html')
+    print('oauth mai gaya')
+    return render(request, 'auth.html')
 
+def dest_oauth(request):
+    print('dest oauth mai gaya')
+    if not request.user.is_authenticated:
+        return redirect('oauth')
+    return render(request, 'destination_auth.html')
 
 def google_auth(request):
+    print('google auth mai gayay')
+    print(f'\n\nUser authenticated: {request.user.is_authenticated}')
     flow = get_google_auth_flow('https://127.0.0.1:8000/photos/auth/callback/')
-    authorization_url, state = flow.authorization_url()
+    authorization_url, state = flow.authorization_url(prompt='select_account')
     return redirect(authorization_url)
 
 def google_auth_callback(request):
+    print('google auth callback mai gaya')
     if 'code' not in request.GET:
         return redirect('home')
 
@@ -61,15 +71,18 @@ def google_auth_callback(request):
         user.save()
 
         login(request, user)
+        # if not request.session.get('is_destination_authenticated', False):
+        #     return redirect('destination_google_auth')
     else:
         print("Failed to fetch user info:", userinfo_response.text)
 
     # Save credentials in session
     request.session['source_credentials'] = credentials_to_dict(credentials)
-    return redirect('migrate_photos')
+    return redirect('dest-oauth')
 
 
 def credentials_to_dict(credentials):
+    print('credentials to dict mai gaya')
     print('creds to dict function mai gaya')
     return {
         'token': credentials.token,
@@ -87,51 +100,42 @@ def credentials_to_dict(credentials):
 
 def destination_google_auth(request):
     print('destination google auth mai gaya')
-    if request.method == 'POST':
-        email = request.POST.get('destination_email')
-        if not email:
-            print("Email is required for destination account authentication.")
-            return redirect('home')  # Add error handling logic here
+    # if request.method == 'POST':
+    #     email = request.POST.get('destination_email')
+    #     if not email:
+    #         print("Email is required for destination account authentication.")
+    #         return redirect('dest-oauth')  # Add error handling logic here
 
         # **Save destination email for later use**
-        request.session['destination_email'] = email
 
-        flow = get_google_auth_flow('https://127.0.0.1:8000/photos/destination/auth/callback/')
-        authorization_url, state = flow.authorization_url(access_type='offline')
-        return redirect(authorization_url)
-    return redirect('home')
+    flow = get_google_auth_flow('https://127.0.0.1:8000/photos/destination/auth/callback/')
+    authorization_url, state = flow.authorization_url(access_type='offline', prompt='select_account')
+    return redirect(authorization_url)
+
 
     
 
 def destination_google_auth_callback(request):
     print('inside destination google auth callback')
     if 'code' not in request.GET:
-        return redirect('home')
+        return redirect('dest-oauth')
 
     flow = get_google_auth_flow('https://127.0.0.1:8000/photos/destination/auth/callback/')
     flow.fetch_token(authorization_response=request.build_absolute_uri())
     credentials = flow.credentials
     print('creds in destination auth callback', credentials)
     dest_creds = credentials_to_dict(credentials)
+    print('\n\ndest creds', dest_creds)
     request.session['destination_credentials'] = dest_creds
-    print(request.session.get('destination_credentials'), 'kjsdbjsbgjsbfsjkdvs')
+    request.session['is_destination_authenticated'] = True
 
     # **Fetch and validate destination email**
     destination_email = request.session.get('destination_email', None)
-    if not destination_email:
-        print("Destination email not found in session.")
-        return redirect('home')  # Handle missing email
 
     # **Fetch user info to confirm token validity**
     userinfo = fetch_user_info(credentials)
-    if userinfo and userinfo.get('email') != destination_email:
-        print(f"Authenticated email ({userinfo.get('email')}) does not match provided destination email ({destination_email}).")
-        return redirect('home')  # Add logic for mismatch handling
-
+    print('userinfo', userinfo)
     return redirect('migrate_photos')
-
-
-
 
 
 #####################logout#######################

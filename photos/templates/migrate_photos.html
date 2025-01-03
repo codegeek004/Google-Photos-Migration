@@ -1,11 +1,6 @@
 <h1>Google Photos Migration</h1>
 
-<form method="POST" action="{% url 'destination_google_auth' %}">
-    {% csrf_token %}
-    <label for="destination_email">Destination Account Email:</label>
-    <input type="email" id="destination_email" name="destination_email" required />
-    <button type="submit">Authenticate Destination Account</button>
-</form>
+
 
 {% if success_all %}
     <p>All photos have been successfully migrated!</p>
