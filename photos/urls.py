@@ -1,9 +1,10 @@
 from django.urls import path
-from photos import views
+from photos import views, auth
 
 urlpatterns = [
-    path('', views.home, name='home'),  # Home page
+    # path('', views.home, name='home'),  # Home page
     path('auth/', views.oauth, name='oauth'),  # Authentication template ### UPDATED ###
+    path('destination/oauth/', views.dest_oauth, name='dest-oauth'),
     path('auth/redirect/', views.google_auth, name='google_auth'),  # Redirect to Google OAuth ### NEW ###
     path('auth/callback/', views.google_auth_callback, name='google_auth_callback'),  # Google OAuth callback
     path('migrate/', views.migrate_photos, name='migrate_photos'),  # Migrate photos
