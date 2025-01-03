@@ -38,7 +38,7 @@ def google_auth(request):
     print('google auth mai gayay')
     print(f'\n\nUser authenticated: {request.user.is_authenticated}')
     flow = get_google_auth_flow('https://127.0.0.1:8000/photos/auth/callback/')
-    authorization_url, state = flow.authorization_url()
+    authorization_url, state = flow.authorization_url(prompt='select_account')
     return redirect(authorization_url)
 
 def google_auth_callback(request):
@@ -109,7 +109,7 @@ def destination_google_auth(request):
         # **Save destination email for later use**
 
     flow = get_google_auth_flow('https://127.0.0.1:8000/photos/destination/auth/callback/')
-    authorization_url, state = flow.authorization_url(access_type='offline')
+    authorization_url, state = flow.authorization_url(access_type='offline', prompt='select_account')
     return redirect(authorization_url)
 
 
